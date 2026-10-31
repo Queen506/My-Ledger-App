@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc } 
+import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, writeBatch } 
 from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
@@ -78,6 +78,14 @@ async function loadData() {
         budSnapshot.docs.forEach(doc => {
             allBudgets[doc.id] = doc.data();
         });
+
+        // หมวดหมู่ที่ผู้ใช้ตั้งเอง (เก็บไว้ใน budgets/config-categories)
+        if (allBudgets['config-categories']) {
+            applyCategoryConfig(allBudgets['config-categories']);
+            delete allBudgets['config-categories'];
+            refreshCategoryDropdowns();
+        }
+        rebuildSearchCategoryFilter();
 
         document.getElementById('global-loading').style.display = 'none';
         updateDashboardUI();
@@ -782,7 +790,7 @@ function renderExpensePieChart(expenseData) {
             labels: Object.keys(map).length > 0 ? Object.keys(map) : ['ไม่มีข้อมูล'],
             datasets: [{
                 data: Object.keys(map).length > 0 ? Object.values(map) : [1],
-                backgroundColor: Object.keys(map).length > 0 ? colors : ['#f1f5f9'],
+                backgroundColor: Object.keys(map).length > 0 ? Object.keys(map).map((_, i) => colors[i % colors.length]) : ['#f1f5f9'],
                 borderWidth: 0
             }]
         },
@@ -1116,6 +1124,212 @@ function renderSubscriptions() {
 }
 
 // ==========================================
+// --- CATEGORY MANAGER (แก้ไขหมวดหมู่เองได้) ---
+const SYSTEM_CAT = 'ยอดยกมา/ปรับยอด'; // ใช้โดยระบบปรับยอด ห้ามแก้/ลบ
+let catMgrType = 'expense';
+
+function rebuildDerivedCategories() {
+    categories.refund = [...categories.expense];
+    bucketMap.needs = categories.expense.filter(c => !bucketMap.wants.includes(c));
+}
+rebuildDerivedCategories();
+
+function applyCategoryConfig(cfg) {
+    ['expense', 'income', 'savings'].forEach(k => {
+        if (Array.isArray(cfg[k]) && cfg[k].length) categories[k] = [...cfg[k]];
+    });
+    if (!categories.income.includes(SYSTEM_CAT)) categories.income.push(SYSTEM_CAT);
+    if (Array.isArray(cfg.wants)) bucketMap.wants = cfg.wants.filter(c => categories.expense.includes(c));
+    rebuildDerivedCategories();
+}
+
+function snapshotCategoryConfig() {
+    return JSON.parse(JSON.stringify({
+        expense: categories.expense, income: categories.income, savings: categories.savings, wants: bucketMap.wants
+    }));
+}
+
+async function saveCategoryConfig() {
+    await setDoc(doc(db, "budgets", "config-categories"), snapshotCategoryConfig());
+}
+
+function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function rebuildSearchCategoryFilter() {
+    const sel = document.getElementById('list-category');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="all">ทุกหมวดหมู่</option>';
+    // รวมหมวดที่ยังมีในรายการเก่าด้วย (กรณีหมวดถูกลบไปแล้ว)
+    const names = new Set([
+        ...categories.income, ...categories.expense, ...categories.savings,
+        ...allTransactions.filter(t => t.type !== 'transfer').map(t => t.category).filter(Boolean)
+    ]);
+    names.forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat;
+        opt.textContent = cat;
+        sel.appendChild(opt);
+    });
+    sel.value = [...sel.options].some(o => o.value === cur) ? cur : 'all';
+}
+
+function refreshCategoryDropdowns() {
+    populateCategoryDropdown(document.getElementById('category').value || null);
+    populateSubCategoryDropdown(document.getElementById('sub-category').value || null);
+}
+
+async function propagateCategoryRename(type, oldName, newName) {
+    const types = type === 'expense' ? ['expense', 'refund'] : [type];
+    const ops = [
+        ...allTransactions.filter(t => types.includes(t.type) && t.category === oldName).map(x => ['transactions', x]),
+        ...allSubscriptions.filter(x => types.includes(x.type) && x.category === oldName).map(x => ['subscriptions', x])
+    ];
+    for (let i = 0; i < ops.length; i += 400) {
+        const batch = writeBatch(db);
+        ops.slice(i, i + 400).forEach(([col, x]) => batch.update(doc(db, col, x.id), { category: newName }));
+        await batch.commit();
+    }
+    ops.forEach(([, x]) => { x.category = newName; });
+}
+
+async function commitCategoryChange(before, extra) {
+    const loading = document.getElementById('global-loading');
+    loading.style.display = 'flex';
+    try {
+        await saveCategoryConfig();
+    } catch (error) {
+        applyCategoryConfig(before); // บันทึกไม่สำเร็จ: ย้อนกลับ
+        loading.style.display = 'none';
+        alert('บันทึกหมวดหมู่ไม่สำเร็จ: ' + error.message);
+        renderCategoryManager();
+        return;
+    }
+    try {
+        if (extra) await extra();
+    } catch (error) {
+        alert('อัปเดตรายการเก่าไม่สำเร็จบางส่วน: ' + error.message);
+    }
+    loading.style.display = 'none';
+    refreshCategoryDropdowns();
+    rebuildSearchCategoryFilter();
+    updateDashboardUI();
+    updateSearchUI();
+    renderSubscriptions();
+    renderCategoryManager();
+}
+
+function renderCategoryManager() {
+    const t = catMgrType;
+    ['expense', 'income', 'savings'].forEach(k => {
+        const b = document.getElementById('cat-tab-' + k);
+        b.className = 'py-1.5 rounded-lg text-xs font-semibold ' + (k === t ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500');
+    });
+    document.getElementById('cat-new-bucket').classList.toggle('hidden', t !== 'expense');
+    document.getElementById('cat-hint').textContent = t === 'expense'
+        ? 'เลือกกลุ่มของแต่ละหมวด (จำเป็น/ความสุข) เพื่อใช้คิดงบประมาณ • หมวดของ "คืนเงิน" ใช้ชุดเดียวกับรายจ่าย • เปลี่ยนชื่อจะอัปเดตรายการเก่าให้ด้วย • การลบไม่ลบรายการเก่า'
+        : 'เปลี่ยนชื่อจะอัปเดตรายการเก่าให้ด้วย • การลบหมวดไม่ลบรายการเก่า';
+
+    document.getElementById('cat-list').innerHTML = categories[t].map((name, i) => {
+        const locked = name === SYSTEM_CAT;
+        const bucket = t === 'expense'
+            ? `<select data-action="bucket" data-idx="${i}" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] outline-none">
+                   <option value="needs" ${bucketMap.wants.includes(name) ? '' : 'selected'}>จำเป็น</option>
+                   <option value="wants" ${bucketMap.wants.includes(name) ? 'selected' : ''}>ความสุข</option>
+               </select>` : '';
+        const actions = locked
+            ? '<span class="text-[10px] text-slate-400">🔒 ระบบ</span>'
+            : `<button type="button" data-action="rename" data-idx="${i}" class="text-[10px] bg-amber-50 text-amber-600 px-2.5 py-1 rounded-md hover:bg-amber-100">แก้ชื่อ</button>
+               <button type="button" data-action="delete" data-idx="${i}" class="text-[10px] bg-red-50 text-red-500 px-2.5 py-1 rounded-md hover:bg-red-100">ลบ</button>`;
+        return `<div class="flex items-center justify-between gap-2 py-2">
+            <span class="text-sm text-slate-700 truncate flex-1 min-w-0">${escHtml(name)}</span>
+            <div class="flex items-center gap-1.5 shrink-0">${bucket}${actions}</div>
+        </div>`;
+    }).join('');
+}
+
+window.openCategoryManager = function(type) {
+    catMgrType = ['expense', 'income', 'savings'].includes(type) ? type : 'expense';
+    document.getElementById('cat-modal').classList.remove('hidden');
+    renderCategoryManager();
+};
+window.closeCategoryManager = function() {
+    document.getElementById('cat-modal').classList.add('hidden');
+};
+window.setCategoryManagerType = function(type) {
+    catMgrType = type;
+    renderCategoryManager();
+};
+
+window.addCategoryFromModal = async function() {
+    const input = document.getElementById('cat-new-name');
+    const name = input.value.trim();
+    const t = catMgrType;
+    if (!name) return;
+    if (categories[t].includes(name)) { alert('มีหมวดหมู่นี้อยู่แล้วครับ'); return; }
+    const before = snapshotCategoryConfig();
+    categories[t].push(name);
+    if (t === 'expense' && document.getElementById('cat-new-bucket').value === 'wants') bucketMap.wants.push(name);
+    rebuildDerivedCategories();
+    input.value = '';
+    await commitCategoryChange(before);
+};
+
+async function renameCategory(idx) {
+    const t = catMgrType;
+    const oldName = categories[t][idx];
+    if (oldName === SYSTEM_CAT) return;
+    const input = prompt(`เปลี่ยนชื่อหมวดหมู่ "${oldName}" เป็น:\n(รายการเก่าที่ใช้หมวดนี้จะถูกเปลี่ยนชื่อตามด้วย)`, oldName);
+    if (input === null) return;
+    const newName = input.trim();
+    if (!newName || newName === oldName) return;
+    if (categories[t].includes(newName)) { alert('มีหมวดหมู่นี้อยู่แล้วครับ'); return; }
+    const before = snapshotCategoryConfig();
+    categories[t][idx] = newName;
+    bucketMap.wants = bucketMap.wants.map(c => c === oldName ? newName : c);
+    rebuildDerivedCategories();
+    await commitCategoryChange(before, () => propagateCategoryRename(t, oldName, newName));
+}
+
+async function deleteCategory(idx) {
+    const t = catMgrType;
+    const name = categories[t][idx];
+    if (name === SYSTEM_CAT) return;
+    if (categories[t].length <= 1) { alert('ต้องเหลืออย่างน้อย 1 หมวดหมู่ครับ'); return; }
+    if (!confirm(`ลบหมวดหมู่ "${name}" ออกจากตัวเลือก?\n(รายการเก่าที่ใช้หมวดนี้จะยังอยู่ ไม่ถูกลบ)`)) return;
+    const before = snapshotCategoryConfig();
+    categories[t].splice(idx, 1);
+    bucketMap.wants = bucketMap.wants.filter(c => c !== name);
+    rebuildDerivedCategories();
+    await commitCategoryChange(before);
+}
+
+async function changeCategoryBucket(idx, bucket) {
+    const name = categories.expense[idx];
+    const before = snapshotCategoryConfig();
+    bucketMap.wants = bucketMap.wants.filter(c => c !== name);
+    if (bucket === 'wants') bucketMap.wants.push(name);
+    rebuildDerivedCategories();
+    await commitCategoryChange(before);
+}
+
+document.getElementById('cat-list').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx);
+    if (btn.dataset.action === 'rename') renameCategory(idx);
+    else if (btn.dataset.action === 'delete') deleteCategory(idx);
+});
+document.getElementById('cat-list').addEventListener('change', e => {
+    const sel = e.target.closest('select[data-action="bucket"]');
+    if (sel) changeCategoryBucket(parseInt(sel.dataset.idx), sel.value);
+});
+document.getElementById('cat-new-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); window.addCategoryFromModal(); }
+});
+
+// ==========================================
 function populateCategoryDropdown(preselectedCategory = null) {
     const type = document.getElementById('type').value;
     const catSelect = document.getElementById('category');
@@ -1128,7 +1342,16 @@ function populateCategoryDropdown(preselectedCategory = null) {
             catSelect.appendChild(opt);
         });
     }
-    if(preselectedCategory) catSelect.value = preselectedCategory;
+    if(preselectedCategory) {
+        // หมวดเก่าที่ถูกลบออกจากรายการแล้ว: คงไว้เป็นตัวเลือกเพื่อไม่ให้ข้อมูลหายตอนแก้ไข
+        if (![...catSelect.options].some(o => o.value === preselectedCategory)) {
+            const opt = document.createElement('option');
+            opt.value = preselectedCategory;
+            opt.textContent = preselectedCategory;
+            catSelect.appendChild(opt);
+        }
+        catSelect.value = preselectedCategory;
+    }
 
     // สลับการแสดงผลตามประเภท: ถ้าเป็น "โอนเงินข้ามกระเป๋า" ให้ซ่อนหมวดหมู่ แล้วแสดงช่องเลือกกระเป๋าปลายทาง
     const isTransfer = type === 'transfer';
@@ -1150,7 +1373,16 @@ function populateSubCategoryDropdown(preselectedCategory = null) {
             catSelect.appendChild(opt);
         });
     }
-    if(preselectedCategory) catSelect.value = preselectedCategory;
+    if(preselectedCategory) {
+        // หมวดเก่าที่ถูกลบออกจากรายการแล้ว: คงไว้เป็นตัวเลือกเพื่อไม่ให้ข้อมูลหายตอนแก้ไข
+        if (![...catSelect.options].some(o => o.value === preselectedCategory)) {
+            const opt = document.createElement('option');
+            opt.value = preselectedCategory;
+            opt.textContent = preselectedCategory;
+            catSelect.appendChild(opt);
+        }
+        catSelect.value = preselectedCategory;
+    }
 }
 
 // ผูก Event Listener เมื่อมีการเปลี่ยนประเภท (รายรับ/รายจ่าย/เงินออม)
@@ -1168,14 +1400,7 @@ function initFilters() {
         yearSelect.appendChild(opt);
     }
     
-    const listCatSelect = document.getElementById('list-category');
-    const allCats = [...categories.income, ...categories.expense, ...categories.savings];
-    [...new Set(allCats)].forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
-        listCatSelect.appendChild(opt);
-    });
+    rebuildSearchCategoryFilter();
 
     const listWalletSelect = document.getElementById('list-wallet');
 Object.keys(WALLET_LABELS).forEach(w => {
