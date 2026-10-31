@@ -20,7 +20,7 @@ const auth = getAuth(app);
 
 // --- 2. DATA ---
 const categories = {
-    expense: ['Groceries', 'Rentals', 'Insurance', 'Utilities', 'Health', 'Transportation','Education', 'Shopping', 'Gift', 'Game'],
+    expense: ['Groceries', 'Rentals', 'Insurance', 'Utilities', 'Health', 'Transportation','Education', 'Parents', 'Shopping', 'Gift', 'Game'],
     income: ['Salary', 'Freelance', 'Income', 'ยอดยกมา/ปรับยอด'],
     savings: ['Savings', 'Stocks', 'Crypto', 'Mutual Funds'],
     refund: [],
@@ -28,7 +28,7 @@ const categories = {
 };
 categories.refund = [...categories.expense];
 const bucketMap = {
-    needs: ['Groceries', 'Rentals', 'Insurance', 'Utilities', 'Transportation', 'Education', 'Health' ],
+    needs: ['Groceries', 'Rentals', 'Insurance', 'Utilities', 'Transportation', 'Education', 'Health', 'Parents' ],
     wants: [ 'Shopping', 'Gift', 'Game']
 };
 
@@ -774,7 +774,7 @@ function renderExpensePieChart(expenseData) {
     const map = {};
     expenseData.forEach(t => { map[t.category] = (map[t.category] || 0) + parseFloat(t.amount); });
     
-    const colors = ['#fca5a5', '#93c5fd', '#86efac', '#fde047', '#d8b4fe', '#fdba74', '#fda4af', '#a7f3d0', '#fef08a', '#c4b5fd'];
+    const colors = ['#fca5a5', '#93c5fd', '#86efac', '#fde047', '#d8b4fe', '#fdba74', '#fda4af', '#a7f3d0', '#fef08a', '#c4b5fd', '#f9a8d4'];
 
     charts['expensePie'] = new Chart(ctx, {
         type: 'pie',
