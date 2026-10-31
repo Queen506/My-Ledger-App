@@ -33,6 +33,17 @@
     }
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    /* เมนูที่เลือกอยู่ (JS สลับสีตัวอักษรอยู่แล้ว ใช้ :has() ต่อยอดเป็นพื้นหลัง/ขยายไอคอน) */
+    .nav-btn span:first-child { transition: transform .15s; }
+    .nav-btn:has(span:last-child.text-indigo-600) span:first-child { transform: scale(1.18); }
+    .nav-btn:has(span:last-child.text-indigo-600) span:last-child { font-weight: 600; }
+    @media (min-width: 768px) {
+      .nav-btn:has(span:last-child.text-indigo-600) { background: #eef2ff; }
+      .nav-btn:has(span:last-child.text-indigo-600) span:first-child { transform: none; }
+    }
+    @media (max-width: 767px) {
+      #app-nav { padding-bottom: env(safe-area-inset-bottom); }
+    }
   </style>
 </head>
 <body>
@@ -50,7 +61,7 @@
     </div>
 </div>
 
-  <div class="max-w-md mx-auto bg-slate-50 min-h-screen relative shadow-xl pb-20">
+  <div class="max-w-md mx-auto md:max-w-none md:ml-52 bg-slate-50 min-h-screen relative shadow-xl md:shadow-none pb-24 md:pb-8">
     
     <div id="global-loading" class="absolute inset-0 bg-white/80 z-50 flex flex-col justify-center items-center backdrop-blur-sm">
         <div class="animate-spin rounded-full h-12 w-12 border-4 border-indigo-200 border-t-indigo-600"></div>
@@ -58,19 +69,20 @@
     </div>
 
     <!-- ================= TAB 1: ภาพรวม (OVERVIEW) ================= -->
-    <div id="tab-overview" class="tab-content p-4 block">
-        <h1 class="text-xl font-bold text-slate-800 text-center mb-4">ภาพรวมบัญชี</h1>
-        <div class="bg-indigo-50 p-4 rounded-2xl shadow-sm border border-indigo-100 mb-6">
+    <div id="tab-overview" class="tab-content p-4 block md:max-w-5xl md:mx-auto md:p-6">
+        <h1 class="text-xl md:text-2xl font-bold text-slate-800 text-center md:text-left mb-4">ภาพรวมบัญชี</h1>
+        <div class="md:grid md:grid-cols-6 md:gap-4">
+        <div class="bg-indigo-50 p-4 rounded-2xl shadow-sm border border-indigo-100 mb-6 md:mb-0 md:col-span-6">
     <h3 class="text-xs font-bold text-indigo-800 mb-3 flex justify-between">
         <span>💼 ยอดเงินคงเหลือ</span>
         <span class="text-indigo-500 text-[10px]">*รวมทุกช่วงเวลา</span>
     </h3>
-    <div id="wallet-balances" class="grid grid-cols-2 gap-2">
+    <div id="wallet-balances" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
         <!-- JS จะมา Render ตรงนี้ -->
     </div>
 </div>
         
-        <div class="flex justify-center gap-2 mb-6">
+        <div class="flex justify-center md:justify-start gap-2 mb-6 md:mb-0 md:col-span-6">
             <select id="filter-month" class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-indigo-400">
                 <option value="all">ทุกเดือน</option>
                 <option value="0">มกราคม</option>
@@ -91,23 +103,23 @@
             <button onclick="printMonthlyReport()" class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm">🖨️ พิมพ์</button>
         </div>
 
-        <div class="grid grid-cols-3 gap-3 mb-6">
+        <div class="grid grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-0 md:col-span-6">
             <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center flex flex-col justify-center items-center border-b-4 border-b-green-200">
                 <p class="text-[10px] text-slate-500 font-medium mb-1">รายรับรวม</p>
-                <h3 id="dash-income" class="text-sm font-bold text-slate-800">0</h3>
+                <h3 id="dash-income" class="text-sm md:text-xl font-bold text-slate-800">0</h3>
             </div>
             <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center flex flex-col justify-center items-center border-b-4 border-b-red-200">
                 <p class="text-[10px] text-slate-500 font-medium mb-1">รายจ่ายรวม</p>
-                <h3 id="dash-expense" class="text-sm font-bold text-slate-800">0</h3>
+                <h3 id="dash-expense" class="text-sm md:text-xl font-bold text-slate-800">0</h3>
             </div>
             <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center flex flex-col justify-center items-center border-b-4 border-b-blue-200">
                 <p class="text-[10px] text-slate-500 font-medium mb-1">เงินออมรวม</p>
-                <h3 id="dash-savings" class="text-sm font-bold text-slate-800">0</h3>
+                <h3 id="dash-savings" class="text-sm md:text-xl font-bold text-slate-800">0</h3>
             </div>
         </div>
 
         <!-- ระบบงบประมาณแบบแยกหมวดและแยกเดือน -->
-        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
+        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 md:mb-0 md:col-span-3">
             <div class="flex justify-between items-center mb-3">
                 <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">🎯 งบประมาณ <span id="budget-month-label" class="text-xs text-indigo-500"></span></h3>
                 <button id="budget-toggle-btn" onclick="toggleBudgetForm()" class="text-[10px] bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200 transition-colors">ตั้งเป้าหมาย</button>
@@ -184,7 +196,7 @@
             </form>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="grid grid-cols-2 gap-4 mb-6 md:mb-0 md:col-span-3">
             <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col">
                 <h3 class="text-xs font-bold text-slate-700 text-center mb-3">สัดส่วนรายจ่าย</h3>
                 <div class="relative flex-1 min-h-[120px]">
@@ -197,23 +209,25 @@
             </div>
         </div>
 
-        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6">
+        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 md:mb-0 md:col-span-4">
             <h3 class="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">📊 แนวโน้มรายปี <span id="chart-year-label" class="text-xs text-slate-400 font-normal"></span></h3>
             <div class="h-48 relative">
                 <canvas id="yearlyChart"></canvas>
             </div>
         </div>
 
-        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-4">
+        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-4 md:mb-0 md:col-span-2">
             <h3 class="text-sm font-bold text-slate-700 mb-3">5 รายการล่าสุด</h3>
             <div id="recent-5-list" class="space-y-3"></div>
         </div>
     </div>
+    </div>
 
     <!-- ================= TAB 2: บิลประจำ (SUBSCRIPTIONS) ================= -->
-    <div id="tab-subs" class="tab-content p-4 hidden">
-        <h1 class="text-xl font-bold text-slate-800 text-center mb-6">บิลประจำเดือน</h1>
+    <div id="tab-subs" class="tab-content p-4 hidden md:max-w-5xl md:mx-auto md:p-6">
+        <h1 class="text-xl md:text-2xl font-bold text-slate-800 text-center md:text-left mb-6">บิลประจำเดือน</h1>
 
+        <div class="md:grid md:grid-cols-2 md:gap-6 md:items-start">
         <!-- รายการบิลประจำ -->
         <div class="mb-6">
             <h3 class="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">💳 บิลของฉัน</h3>
@@ -319,12 +333,13 @@
 </form>
         </div>
     </div>
+    </div>
 
     <!-- ================= TAB 3: บันทึกปกติ (RECORD) ================= -->
-    <div id="tab-record" class="tab-content p-4 hidden">
+    <div id="tab-record" class="tab-content p-4 hidden md:max-w-xl md:mx-auto md:p-6">
         <h1 class="text-xl font-bold text-slate-800 text-center mb-6" id="record-title">บันทึกรายการ</h1>
 
-        <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+        <div class="bg-white p-5 md:p-8 rounded-3xl shadow-sm border border-slate-100">
             <h2 id="form-subtitle" class="text-center text-sm font-bold text-slate-700 mb-5 flex items-center justify-center gap-2">✍️ บันทึกรายการใหม่</h2>
             
             <form id="transaction-form" class="space-y-4">
@@ -406,7 +421,7 @@
     </div>
 
     <!-- ================= TAB 4: ค้นหา (SEARCH) ================= -->
-    <div id="tab-search" class="tab-content p-4 hidden">
+    <div id="tab-search" class="tab-content p-4 hidden md:max-w-4xl md:mx-auto md:p-6">
         <h1 class="text-xl font-bold text-slate-800 text-center mb-6">ค้นหารายการ</h1>
         
         <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-4">
@@ -476,11 +491,11 @@
         </div>
 
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            <div id="full-transactions-list" class="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto no-scrollbar"></div>
+            <div id="full-transactions-list" class="divide-y divide-slate-100 max-h-[60vh] md:max-h-[68vh] overflow-y-auto no-scrollbar"></div>
         </div>
     </div>
       <!-- ================= TAB 5: ปฏิทิน (CALENDAR) ================= -->
-<div id="tab-calendar" class="tab-content p-4 hidden">
+<div id="tab-calendar" class="tab-content p-4 hidden md:max-w-3xl md:mx-auto md:p-6">
     <h1 class="text-xl font-bold text-slate-800 text-center mb-4">ปฏิทินรายรับ-รายจ่าย</h1>
 
     <div class="flex justify-between items-center mb-4">
@@ -531,33 +546,37 @@
 </div>
 
     <!-- ================= BOTTOM NAVIGATION (ปรับให้มี 4 ปุ่ม) ================= -->
-    <nav class="fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] z-40">
-        <div class="max-w-md mx-auto grid grid-cols-5 items-center justify-items-center py-3">
-            <button onclick="resetFormState(); switchTab('overview')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16" data-target="tab-overview">
+    <nav id="app-nav" class="fixed bottom-0 left-0 w-full md:w-52 md:h-screen md:top-0 bg-white border-t md:border-t-0 md:border-r border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.03)] md:shadow-none z-40">
+        <div class="hidden md:block px-5 pt-6 pb-3">
+            <div class="text-lg font-bold text-indigo-600">💰 รายรับรายจ่าย</div>
+            <div class="text-[11px] text-slate-400">Personal Finance</div>
+        </div>
+        <div class="max-w-md mx-auto grid grid-cols-5 items-center justify-items-center py-3 md:flex md:flex-col md:items-stretch md:max-w-none md:mx-0 md:p-3 md:gap-1">
+            <button onclick="resetFormState(); switchTab('overview')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16 md:w-full md:flex-row md:gap-3 md:px-4 md:py-3 md:rounded-xl md:hover:bg-slate-100 transition-colors" data-target="tab-overview">
                 <span class="text-xl">🏠</span>
-                <span class="text-[10px] font-medium">ภาพรวม</span>
+                <span class="text-[10px] md:text-sm font-medium">ภาพรวม</span>
             </button>
 
             <!-- แท็บใหม่: บิลประจำ -->
-            <button onclick="switchTab('subs')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16" data-target="tab-subs">
+            <button onclick="switchTab('subs')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16 md:w-full md:flex-row md:gap-3 md:px-4 md:py-3 md:rounded-xl md:hover:bg-slate-100 transition-colors" data-target="tab-subs">
                 <span class="text-xl">💳</span>
-                <span class="text-[10px] font-medium">บิลประจำ</span>
+                <span class="text-[10px] md:text-sm font-medium">บิลประจำ</span>
             </button>
 
             <!-- ปุ่มใหม่: ปฏิทิน -->
-    <button onclick="switchTab('calendar')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16" data-target="tab-calendar">
+    <button onclick="switchTab('calendar')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16 md:w-full md:flex-row md:gap-3 md:px-4 md:py-3 md:rounded-xl md:hover:bg-slate-100 transition-colors" data-target="tab-calendar">
         <span class="text-xl">📅</span>
-        <span class="text-[10px] font-medium">ปฏิทิน</span>
+        <span class="text-[10px] md:text-sm font-medium">ปฏิทิน</span>
     </button>
             
-            <button onclick="resetFormState(); switchTab('record')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16" data-target="tab-record">
+            <button onclick="resetFormState(); switchTab('record')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16 md:w-full md:flex-row md:gap-3 md:px-4 md:py-3 md:rounded-xl md:hover:bg-slate-100 transition-colors" data-target="tab-record">
                 <span class="text-xl">➕</span>
-                <span class="text-[10px] font-medium">บันทึก</span>
+                <span class="text-[10px] md:text-sm font-medium">บันทึก</span>
             </button>
 
-            <button onclick="resetFormState(); switchTab('search')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16" data-target="tab-search">
+            <button onclick="resetFormState(); switchTab('search')" class="nav-btn flex flex-col items-center gap-1 text-slate-400 w-16 md:w-full md:flex-row md:gap-3 md:px-4 md:py-3 md:rounded-xl md:hover:bg-slate-100 transition-colors" data-target="tab-search">
                 <span class="text-xl">🔍</span>
-                <span class="text-[10px] font-medium">ค้นหา</span>
+                <span class="text-[10px] md:text-sm font-medium">ค้นหา</span>
             </button>
         </div>
     </nav>
