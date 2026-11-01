@@ -29,7 +29,8 @@ const categories = {
 categories.refund = [...categories.expense];
 const bucketMap = {
     needs: ['Groceries', 'Rentals', 'Insurance', 'Utilities', 'Transportation', 'Education', 'Health', 'Parents' ],
-    wants: [ 'Shopping', 'Gift', 'Game']
+    wants: [ 'Shopping', 'Gift', 'Game'],
+    saved: [] // หมวดที่จ่ายจากเงินออมที่เก็บไว้ (ไม่นับเข้างบจำเป็น/ความสุข)
 };
 
 const WALLET_LABELS = {
@@ -216,6 +217,12 @@ window.saveBudgetSettings = async function(e) {
     const m = document.getElementById('filter-month').value;
     if(m === 'all') { alert('กรุณาเลือกเดือนก่อนบันทึกงบประมาณครับ'); return; }
 
+    // ช่วงรอบงบ (ตัดรอบตามวันเงินเดือนเข้า) — เว้นว่างทั้งคู่ = นับตามเดือนปฏิทินเหมือนเดิม
+    const startDate = document.getElementById('b-start').value;
+    const endDate = document.getElementById('b-end').value;
+    if ((startDate && !endDate) || (!startDate && endDate)) { alert('กรุณาระบุวันเริ่มและวันสิ้นสุดของรอบให้ครบ (หรือเว้นว่างทั้งคู่)'); return; }
+    if (startDate && endDate && startDate > endDate) { alert('วันเริ่มรอบต้องไม่มากกว่าวันสิ้นสุดรอบครับ'); return; }
+
     const btn = document.getElementById('budget-save-btn');
     btn.textContent = '...'; btn.disabled = true;
 
@@ -225,6 +232,7 @@ window.saveBudgetSettings = async function(e) {
         wants: { type: document.getElementById('b-wants-type').value, value: parseFloat(document.getElementById('b-wants-val').value) || 0 },
         savings: { type: document.getElementById('b-sav-type').value, value: parseFloat(document.getElementById('b-sav-val').value) || 0 }
     };
+    if (startDate && endDate) { formData.startDate = startDate; formData.endDate = endDate; }
 
     try {
         await setDoc(doc(db, "budgets", key), formData);
@@ -260,6 +268,16 @@ window.toggleBudgetForm = function() {
         document.getElementById('b-wants-val').value = b.wants.value;
         document.getElementById('b-sav-type').value = b.savings.type;
         document.getElementById('b-sav-val').value = b.savings.value;
+
+        // รอบงบ: งบเก่าที่ไม่มีช่วงวันที่ปล่อยว่าง (นับตามเดือนปฏิทินเหมือนเดิม) / เดือนที่ยังไม่เคยตั้ง แนะนำ 27 -> 26 เดือนถัดไป
+        const fmt = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        if (allBudgets[key]) {
+            document.getElementById('b-start').value = b.startDate || '';
+            document.getElementById('b-end').value = b.endDate || '';
+        } else {
+            document.getElementById('b-start').value = fmt(new Date(parseInt(y), parseInt(m), 27));
+            document.getElementById('b-end').value = fmt(new Date(parseInt(y), parseInt(m) + 1, 26));
+        }
     } else {
         form.classList.add('hidden');
     }
@@ -445,9 +463,11 @@ function updateDashboardUI() {
     let inc = 0, exp = 0, sav = 0;
     dashData.forEach(t => {
         const v = parseFloat(t.amount);
+        // หมวด "ใช้เงินออม" แยกออกจากรายจ่ายรวม (ยังหักยอดกระเป๋าตามจริง)
+        if ((t.type === 'expense' || t.type === 'refund') && bucketMap.saved.includes(t.category)) return;
         if(t.type === 'income') inc += v;
         else if(t.type === 'expense') exp += v;
-        else if(t.type === 'savings') sav += v;
+        else if(t.type === 'savings') { if (!isGoalSavingsCat(t.category)) sav += v; }
         else if(t.type === 'refund') exp -= v; 
     });
     
@@ -513,16 +533,28 @@ function updateDashboardUI() {
          document.getElementById('budget-toggle-btn').classList.remove('hidden');
          
          const monthNames = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-         document.getElementById('budget-month-label').textContent = `(รอบ ${monthNames[parseInt(m)]} ${y})`;
-
          const key = 'B-' + y + '-' + m;
-         let b = allBudgets[key] || { 
-             needs: {type: 'fixed', value: 0}, wants: {type: 'fixed', value: 2000}, savings: {type: 'fixed', value: 1000} 
+         let b = allBudgets[key] || {
+             needs: {type: 'fixed', value: 0}, wants: {type: 'fixed', value: 2000}, savings: {type: 'fixed', value: 1000}
          };
 
+         // ถ้าตั้งช่วงรอบไว้ ใช้ช่วงนั้น (ตัดรอบวันเงินเดือน) / ถ้าไม่ตั้ง ใช้เดือนปฏิทินเหมือนเดิม
+         const hasCycle = !!(b.startDate && b.endDate);
+         const fmtShort = ds => { const p = ds.split('-'); return parseInt(p[2]) + ' ' + monthNames[parseInt(p[1]) - 1]; };
+         document.getElementById('budget-month-label').textContent = hasCycle
+             ? `(${fmtShort(b.startDate)} - ${fmtShort(b.endDate)})`
+             : `(รอบ ${monthNames[parseInt(m)]} ${y})`;
+         const budgetData = hasCycle
+             ? allTransactions.filter(t => { const ds = String(t.date).substring(0, 10); return ds >= b.startDate && ds <= b.endDate; })
+             : dashData;
+         let budInc = 0;
+         budgetData.forEach(t => { if (t.type === 'income') budInc += parseFloat(t.amount); });
+
          let actualNeeds = 0, actualWants = 0, actualSav = 0;
-         dashData.forEach(t => {
+         budgetData.forEach(t => {
              let val = parseFloat(t.amount);
+             // หมวด "ใช้เงินออม": ไม่นับเข้างบ (เงินถูกนับเป็นเงินออมไปแล้ว)
+             if ((t.type === 'expense' || t.type === 'refund') && bucketMap.saved.includes(t.category)) return;
              if (t.type === 'expense') {
                  if (bucketMap.needs.includes(t.category)) actualNeeds += val;
                  else if (bucketMap.wants.includes(t.category)) actualWants += val;
@@ -532,7 +564,7 @@ function updateDashboardUI() {
                  else if (bucketMap.wants.includes(t.category)) actualWants -= val;
                  else actualNeeds -= val;
              } else if (t.type === 'savings') {
-                 actualSav += val;
+                 if (!isGoalSavingsCat(t.category)) actualSav += val;
              }
          });
 
@@ -541,7 +573,19 @@ function updateDashboardUI() {
              let textEl = document.getElementById(`budget-${idPrefix}-text`);
              let barEl = document.getElementById(`budget-${idPrefix}-bar`);
              
-             let displayActual = Math.max(0, actual); 
+             let displayActual = Math.max(0, actual);
+             let leftEl = document.getElementById(`budget-${idPrefix}-left`);
+             if (leftEl) {
+                 const remain = target - displayActual;
+                 if (target <= 0) { leftEl.textContent = ''; }
+                 else if (isSavings) {
+                     leftEl.textContent = remain > 0 ? `ขาดอีก ฿${remain.toLocaleString()} ถึงเป้า` : 'ครบเป้าหมายแล้ว 🎉';
+                     leftEl.className = 'text-[10px] mt-1 text-right ' + (remain > 0 ? 'text-slate-500' : 'text-emerald-600 font-bold');
+                 } else {
+                     leftEl.textContent = remain >= 0 ? `คงเหลือ ฿${remain.toLocaleString()}` : `เกินงบ ฿${Math.abs(remain).toLocaleString()}`;
+                     leftEl.className = 'text-[10px] mt-1 text-right font-bold ' + (remain >= 0 ? 'text-emerald-600' : 'text-red-500');
+                 }
+             }
 
              if (target > 0) {
                  textEl.innerText = `${isSavings ? 'ออมแล้ว' : 'ใช้ไป'} ฿${displayActual.toLocaleString()} / ${isSavings ? 'เป้า' : 'งบ'} ฿${target.toLocaleString()}`;
@@ -559,15 +603,44 @@ function updateDashboardUI() {
                  barEl.style.width = '0%';
                  barEl.className = 'bg-slate-300 h-2 rounded-full transition-all';
              }
+             return target;
          };
 
-         updateBar('needs', actualNeeds, b.needs.type, b.needs.value, inc, false);
-         updateBar('wants', actualWants, b.wants.type, b.wants.value, inc, false);
-         updateBar('sav', actualSav, b.savings.type, b.savings.value, inc, true);
+         const needsTarget = updateBar('needs', actualNeeds, b.needs.type, b.needs.value, budInc, false);
+         const wantsTarget = updateBar('wants', actualWants, b.wants.type, b.wants.value, budInc, false);
+         updateBar('sav', actualSav, b.savings.type, b.savings.value, budInc, true);
+
+         // สรุปคงเหลือรวม (จำเป็น + ความสุข) และจำนวนวันที่เหลือในรอบ
+         const totalTarget = needsTarget + wantsTarget;
+         const totalRemain = totalTarget - (Math.max(0, actualNeeds) + Math.max(0, actualWants));
+         const remainEl = document.getElementById('budget-remain-total');
+         const daysEl = document.getElementById('budget-remain-days');
+         if (totalTarget > 0) {
+             remainEl.textContent = (totalRemain < 0 ? '-' : '') + '฿' + Math.abs(totalRemain).toLocaleString(undefined, {maximumFractionDigits: 2});
+             remainEl.className = 'text-sm font-bold ' + (totalRemain >= 0 ? 'text-emerald-600' : 'text-red-500');
+         } else {
+             remainEl.textContent = '-';
+             remainEl.className = 'text-sm font-bold text-slate-400';
+         }
+         let daysText = '';
+         let rEnd = null;
+         if (hasCycle) rEnd = b.endDate;
+         else rEnd = y + '-' + String(parseInt(m) + 1).padStart(2, '0') + '-' + String(new Date(parseInt(y), parseInt(m) + 1, 0).getDate()).padStart(2, '0');
+         const rStart = hasCycle ? b.startDate : y + '-' + String(parseInt(m) + 1).padStart(2, '0') + '-01';
+         const todayStr = todayString();
+         if (todayStr > rEnd) daysText = 'จบรอบแล้ว';
+         else if (todayStr >= rStart) {
+             const toUTC = s => { const p = s.split('-'); return Date.UTC(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])); };
+             const daysLeft = Math.round((toUTC(rEnd) - toUTC(todayStr)) / 86400000) + 1;
+             daysText = `เหลืออีก ${daysLeft} วัน`;
+             if (totalTarget > 0 && totalRemain > 0) daysText += ` • ใช้ได้วันละ ฿${Math.floor(totalRemain / daysLeft).toLocaleString()}`;
+         } else daysText = 'ยังไม่เริ่มรอบ';
+         daysEl.textContent = daysText;
     }
 
     const netExpenseMap = {};
     dashData.forEach(t => {
+        if ((t.type === 'expense' || t.type === 'refund') && bucketMap.saved.includes(t.category)) return;
         if (t.type === 'expense') {
             netExpenseMap[t.category] = (netExpenseMap[t.category] || 0) + parseFloat(t.amount);
         } else if (t.type === 'refund') {
@@ -582,10 +655,54 @@ function updateDashboardUI() {
     renderExpensePieChart(netExpenseData);
     renderTopExpenses(netExpenseData);
     renderRecentList(dashData);
+    renderGoals();
 
     const yearlyData = allTransactions.filter(t => new Date(t.date).getFullYear() === selectedYear);
     document.getElementById('chart-year-label').textContent = `(${selectedYear})`;
     renderYearlyChart(yearlyData);
+}
+
+// การ์ดเป้าหมายเงินออม: จับคู่หมวด "เงินออม" กับหมวด "รายจ่าย" ที่ชื่อตรงกัน (นับรวมทุกช่วงเวลา)
+// หมวดเงินออมที่เป็น "เป้าหมายซื้อของ" (ชื่อตรงกับหมวดรายจ่าย) แยกออกจากงบรายเดือน
+function isGoalSavingsCat(c) {
+    return categories.savings.includes(c) && categories.expense.includes(c);
+}
+
+function renderGoals() {
+    const card = document.getElementById('goals-card');
+    const list = document.getElementById('goals-list');
+    if (!card || !list) return;
+    const names = categories.savings.filter(c => categories.expense.includes(c));
+    if (names.length === 0) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+
+    list.innerHTML = names.map(name => {
+        let saved = 0, spent = 0;
+        allTransactions.forEach(t => {
+            if (t.category !== name) return;
+            const v = parseFloat(t.amount);
+            if (t.type === 'savings') saved += v;
+            else if (t.type === 'expense') spent += v;
+            else if (t.type === 'refund') spent -= v;
+        });
+        const remain = saved - spent;
+        const pct = saved > 0 ? Math.min(100, Math.max(0, spent / saved * 100)) : 0;
+        const over = remain < 0;
+        return `
+        <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-bold text-slate-700 truncate pr-2">🎯 ${escHtml(name)}</span>
+                <span class="text-xs font-bold shrink-0 ${over ? 'text-red-500' : 'text-emerald-600'}">${over ? 'ใช้เกิน ฿' + formatMoney(Math.abs(remain)) : 'คงเหลือ ฿' + formatMoney(remain)}</span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                <div class="h-2 rounded-full ${over ? 'bg-red-400' : 'bg-emerald-400'}" style="width: ${over ? 100 : pct}%"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+                <span>เก็บแล้ว ฿${formatMoney(saved)}</span>
+                <span>ใช้ไป ฿${formatMoney(spent)}</span>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 function renderTopExpenses(expenseData) {
@@ -693,7 +810,7 @@ function updateSearchUI() {
             // แบ่งกลุ่มเหมือนแถบงบประมาณ: รายจ่าย/คืนเงินที่ไม่อยู่ใน "ความสุข" นับเป็น "จำเป็น"
             let bucket = null;
             if (t.type === 'savings') bucket = 'savings';
-            else if (t.type === 'expense' || t.type === 'refund') bucket = bucketMap.wants.includes(t.category) ? 'wants' : 'needs';
+            else if (t.type === 'expense' || t.type === 'refund') bucket = bucketMap.saved.includes(t.category) ? 'saved' : (bucketMap.wants.includes(t.category) ? 'wants' : 'needs');
             matchBucket = bucket === listBucket;
         }
 
@@ -817,8 +934,8 @@ function renderYearlyChart(data) {
         const m = new Date(t.date).getMonth();
         const v = parseFloat(t.amount);
         if(t.type === 'income') inc[m] += v;
-        else if(t.type === 'expense') exp[m] += v;
-        else if(t.type === 'refund') exp[m] -= v;
+        else if(t.type === 'expense' && !bucketMap.saved.includes(t.category)) exp[m] += v;
+        else if(t.type === 'refund' && !bucketMap.saved.includes(t.category)) exp[m] -= v;
     });
 
     charts['yearly'] = new Chart(ctx, {
@@ -1130,7 +1247,7 @@ let catMgrType = 'expense';
 
 function rebuildDerivedCategories() {
     categories.refund = [...categories.expense];
-    bucketMap.needs = categories.expense.filter(c => !bucketMap.wants.includes(c));
+    bucketMap.needs = categories.expense.filter(c => !bucketMap.wants.includes(c) && !bucketMap.saved.includes(c));
 }
 rebuildDerivedCategories();
 
@@ -1140,12 +1257,13 @@ function applyCategoryConfig(cfg) {
     });
     if (!categories.income.includes(SYSTEM_CAT)) categories.income.push(SYSTEM_CAT);
     if (Array.isArray(cfg.wants)) bucketMap.wants = cfg.wants.filter(c => categories.expense.includes(c));
+    bucketMap.saved = Array.isArray(cfg.saved) ? cfg.saved.filter(c => categories.expense.includes(c)) : [];
     rebuildDerivedCategories();
 }
 
 function snapshotCategoryConfig() {
     return JSON.parse(JSON.stringify({
-        expense: categories.expense, income: categories.income, savings: categories.savings, wants: bucketMap.wants
+        expense: categories.expense, income: categories.income, savings: categories.savings, wants: bucketMap.wants, saved: bucketMap.saved
     }));
 }
 
@@ -1228,15 +1346,16 @@ function renderCategoryManager() {
     });
     document.getElementById('cat-new-bucket').classList.toggle('hidden', t !== 'expense');
     document.getElementById('cat-hint').textContent = t === 'expense'
-        ? 'เลือกกลุ่มของแต่ละหมวด (จำเป็น/ความสุข) เพื่อใช้คิดงบประมาณ • หมวดของ "คืนเงิน" ใช้ชุดเดียวกับรายจ่าย • เปลี่ยนชื่อจะอัปเดตรายการเก่าให้ด้วย • การลบไม่ลบรายการเก่า'
+        ? 'เลือกกลุ่มของแต่ละหมวด (จำเป็น/ความสุข/ใช้เงินออม) เพื่อใช้คิดงบประมาณ • "ใช้เงินออม" = ไม่นับเข้างบ ใช้กับของชิ้นใหญ่ที่เก็บเงินออมไว้ซื้อ • หมวดของ "คืนเงิน" ใช้ชุดเดียวกับรายจ่าย • เปลี่ยนชื่อจะอัปเดตรายการเก่าให้ด้วย • การลบไม่ลบรายการเก่า'
         : 'เปลี่ยนชื่อจะอัปเดตรายการเก่าให้ด้วย • การลบหมวดไม่ลบรายการเก่า';
 
     document.getElementById('cat-list').innerHTML = categories[t].map((name, i) => {
         const locked = name === SYSTEM_CAT;
         const bucket = t === 'expense'
             ? `<select data-action="bucket" data-idx="${i}" class="px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] outline-none">
-                   <option value="needs" ${bucketMap.wants.includes(name) ? '' : 'selected'}>จำเป็น</option>
+                   <option value="needs" ${(bucketMap.wants.includes(name) || bucketMap.saved.includes(name)) ? '' : 'selected'}>จำเป็น</option>
                    <option value="wants" ${bucketMap.wants.includes(name) ? 'selected' : ''}>ความสุข</option>
+                   <option value="saved" ${bucketMap.saved.includes(name) ? 'selected' : ''}>ใช้เงินออม</option>
                </select>` : '';
         const actions = locked
             ? '<span class="text-[10px] text-slate-400">🔒 ระบบ</span>'
@@ -1271,6 +1390,7 @@ window.addCategoryFromModal = async function() {
     const before = snapshotCategoryConfig();
     categories[t].push(name);
     if (t === 'expense' && document.getElementById('cat-new-bucket').value === 'wants') bucketMap.wants.push(name);
+    if (t === 'expense' && document.getElementById('cat-new-bucket').value === 'saved') bucketMap.saved.push(name);
     rebuildDerivedCategories();
     input.value = '';
     await commitCategoryChange(before);
@@ -1288,6 +1408,7 @@ async function renameCategory(idx) {
     const before = snapshotCategoryConfig();
     categories[t][idx] = newName;
     bucketMap.wants = bucketMap.wants.map(c => c === oldName ? newName : c);
+    bucketMap.saved = bucketMap.saved.map(c => c === oldName ? newName : c);
     rebuildDerivedCategories();
     await commitCategoryChange(before, () => propagateCategoryRename(t, oldName, newName));
 }
@@ -1301,6 +1422,7 @@ async function deleteCategory(idx) {
     const before = snapshotCategoryConfig();
     categories[t].splice(idx, 1);
     bucketMap.wants = bucketMap.wants.filter(c => c !== name);
+    bucketMap.saved = bucketMap.saved.filter(c => c !== name);
     rebuildDerivedCategories();
     await commitCategoryChange(before);
 }
@@ -1309,7 +1431,9 @@ async function changeCategoryBucket(idx, bucket) {
     const name = categories.expense[idx];
     const before = snapshotCategoryConfig();
     bucketMap.wants = bucketMap.wants.filter(c => c !== name);
+    bucketMap.saved = bucketMap.saved.filter(c => c !== name);
     if (bucket === 'wants') bucketMap.wants.push(name);
+    if (bucket === 'saved') bucketMap.saved.push(name);
     rebuildDerivedCategories();
     await commitCategoryChange(before);
 }

@@ -140,6 +140,7 @@
                     <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                         <div id="budget-needs-bar" class="bg-blue-400 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
                     </div>
+                    <div id="budget-needs-left" class="text-[10px] mt-1 text-right"></div>
                 </div>
                 <!-- Wants (สร้างความสุข) -->
                 <div>
@@ -150,6 +151,7 @@
                     <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                         <div id="budget-wants-bar" class="bg-purple-400 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
                     </div>
+                    <div id="budget-wants-left" class="text-[10px] mt-1 text-right"></div>
                 </div>
                 <!-- Savings (เงินออม) -->
                 <div>
@@ -160,6 +162,15 @@
                     <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                         <div id="budget-sav-bar" class="bg-emerald-400 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
                     </div>
+                    <div id="budget-sav-left" class="text-[10px] mt-1 text-right"></div>
+                </div>
+                <!-- สรุปคงเหลือรวม -->
+                <div class="rounded-xl bg-indigo-50 border border-indigo-100 p-3 flex justify-between items-center">
+                    <div>
+                        <p class="text-[10px] font-bold text-slate-600">คงเหลือใช้ได้ (จำเป็น + ความสุข)</p>
+                        <p id="budget-remain-days" class="text-[10px] text-slate-400"></p>
+                    </div>
+                    <span id="budget-remain-total" class="text-sm font-bold text-slate-400">-</span>
                 </div>
             </div>
 
@@ -167,6 +178,15 @@
             <form id="budget-form" class="hidden mt-4 border-t border-slate-100 pt-4" onsubmit="saveBudgetSettings(event)">
                 <p class="text-[10px] text-slate-400 mb-2">*ตั้งค่าได้ทั้งแบบ % ของรายรับ หรือ ระบุจำนวนเงิน (฿)</p>
                 <div class="space-y-3">
+                    <div class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
+                        <p class="text-[10px] font-bold text-indigo-700 mb-2">📅 รอบงบ (ตัดรอบตามวันเงินเดือนเข้า)</p>
+                        <div class="flex gap-2 items-center">
+                            <input type="date" id="b-start" class="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none">
+                            <span class="text-xs text-slate-400">ถึง</span>
+                            <input type="date" id="b-end" class="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none">
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-1.5">ปรับวันที่ได้ตามวันที่เงินเดือนเข้าจริง (นับรวมวันสิ้นสุด) • เว้นว่างทั้งคู่ = นับตามเดือนปฏิทิน (1 – สิ้นเดือน)</p>
+                    </div>
                     <div class="flex gap-2 items-center">
                         <span class="text-xs w-16 font-bold text-slate-600">จำเป็น:</span>
                         <select id="b-needs-type" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none">
@@ -207,6 +227,13 @@
                 <h3 class="text-xs font-bold text-red-500 mb-3 flex items-center gap-1">🔥 รายจ่ายเรียงตามลำดับ</h3>
                 <div id="top-expenses" class="space-y-3 max-h-48 overflow-y-auto no-scrollbar"></div>
             </div>
+        </div>
+
+        <!-- เป้าหมายเงินออม (แสดงเมื่อมีหมวดออมกับหมวดรายจ่ายชื่อตรงกัน) -->
+        <div id="goals-card" class="hidden bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 md:mb-0 md:col-span-6">
+            <h3 class="text-sm font-bold text-slate-700 mb-1">🎯 เป้าหมายเงินออม</h3>
+            <p class="text-[10px] text-slate-400 mb-3">จับคู่หมวดเงินออมกับหมวดรายจ่ายที่ชื่อเหมือนกัน • นับรวมทุกช่วงเวลา</p>
+            <div id="goals-list" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
         </div>
 
         <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 mb-6 md:mb-0 md:col-span-4">
@@ -476,6 +503,7 @@
                 <option value="all">ทุกกลุ่ม (จำเป็น/ความสุข/เงินออม)</option>
                 <option value="needs">1. จำเป็น</option>
                 <option value="wants">2. ความสุข</option>
+                <option value="saved">4. ใช้เงินออม (ไม่นับเข้างบ)</option>
                 <option value="savings">3. เงินออม/ลงทุน</option>
             </select>
             <select id="list-wallet" class="w-full mt-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none">
@@ -604,6 +632,7 @@
             <select id="cat-new-bucket" class="px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none">
                 <option value="needs">จำเป็น</option>
                 <option value="wants">ความสุข</option>
+                <option value="saved">ใช้เงินออม</option>
             </select>
             <button type="button" onclick="addCategoryFromModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold">เพิ่ม</button>
         </div>
