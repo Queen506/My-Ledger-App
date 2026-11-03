@@ -484,6 +484,9 @@ function updateDashboardUI() {
         const v = parseFloat(t.amount);
         const w = t.wallet || 'Kplus';
         const toW = t.toWallet || '';
+        // เงินออมหมวดเป้าหมาย (ของชิ้นใหญ่ ฯลฯ) = แค่ "กันเงินไว้" เงินยังอยู่ในกระเป๋าจริง จึงไม่หักยอดกระเป๋า
+        // ไปหักตอนซื้อจริง (รายจ่าย) ครั้งเดียว -> ไม่หักซ้ำ และบันทึกย้อนหลังได้โดยยอดกระเป๋าไม่เพี้ยน
+        if (t.type === 'savings' && isGoalSavingsCat(t.category)) return;
         
         if(walletBalances[w] === undefined) walletBalances[w] = 0;
 
@@ -676,6 +679,7 @@ function renderGoals() {
     if (names.length === 0) { card.classList.add('hidden'); return; }
     card.classList.remove('hidden');
 
+    let totalHeld = 0;
     list.innerHTML = names.map(name => {
         let saved = 0, spent = 0;
         allTransactions.forEach(t => {
@@ -686,6 +690,7 @@ function renderGoals() {
             else if (t.type === 'refund') spent -= v;
         });
         const remain = saved - spent;
+        totalHeld += Math.max(0, remain);
         const pct = saved > 0 ? Math.min(100, Math.max(0, spent / saved * 100)) : 0;
         const over = remain < 0;
         return `
@@ -703,6 +708,8 @@ function renderGoals() {
             </div>
         </div>`;
     }).join('');
+    const heldEl = document.getElementById('goals-held');
+    if (heldEl) heldEl.textContent = '฿' + formatMoney(totalHeld);
 }
 
 function renderTopExpenses(expenseData) {
